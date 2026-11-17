@@ -75,6 +75,7 @@ class PlayerActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_URIS = "uris"
+        const val EXTRA_START = "start"
     }
 
     private lateinit var player: ExoPlayer
@@ -291,6 +292,10 @@ class PlayerActivity : AppCompatActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (shouldFallback(error)) {
+                    openVlcFallback()
+                    return
+                }
                 Toast.makeText(
                     this@PlayerActivity,
                     "Wiedergabe-Fehler: ${error.errorCodeName}",
@@ -324,11 +329,37 @@ class PlayerActivity : AppCompatActivity() {
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(displayName(it)).build())
                 .build()
         }
-        val resume = prefs.getLong(uris[0].toString(), 0L)
-        player.setMediaItems(items, 0, if (resume > 5_000) resume else C.TIME_UNSET)
-        titleView.text = items[0].mediaMetadata.title ?: ""
+        val start = intent.getIntExtra(EXTRA_START, 0).coerceIn(0, uris.size - 1)
+        val resume = prefs.getLong(uris[start].toString(), 0L)
+        player.setMediaItems(items, start, if (resume > 5_000) resume else C.TIME_UNSET)
+        titleView.text = items[start].mediaMetadata.title ?: ""
         player.prepare()
         player.playWhenReady = true
+    }
+
+    private fun shouldFallback(e: PlaybackException): Boolean = when (e.errorCode) {
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+        PlaybackException.ERROR_CODE_DECODING_FAILED -> true
+        else -> false
+    }
+
+    /** Media3 kommt nicht klar -> dieselbe Datei (und der Rest der Liste) mit der VLC-Engine. */
+    private fun openVlcFallback() {
+        val rest = ArrayList<Uri>()
+        for (i in player.currentMediaItemIndex until player.mediaItemCount) {
+            player.getMediaItemAt(i).localConfiguration?.uri?.let { rest.add(it) }
+        }
+        Toast.makeText(this, "Wechsle zur VLC-Engine …", Toast.LENGTH_SHORT).show()
+        player.stop()
+        startActivity(
+            android.content.Intent(this, VlcPlayerActivity::class.java)
+                .putParcelableArrayListExtra(EXTRA_URIS, rest)
+        )
+        finish()
     }
 
     private fun displayName(u: Uri): String {

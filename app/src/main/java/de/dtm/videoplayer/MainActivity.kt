@@ -42,6 +42,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val treePicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+        }
+        startActivity(Intent(this, FolderActivity::class.java).setData(uri))
+    }
+
     private val btPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +77,11 @@ class MainActivity : AppCompatActivity() {
 
         val btnCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         btnCol.addView(pill("Disc einlegen (Datei wählen)", true) { openPicker() }, matchWrap())
+
+        btnCol.addView(
+            pill("Ordner öffnen (nur Abspielbares)", false) { treePicker.launch(null) },
+            matchWrap(10, this)
+        )
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(

@@ -32,6 +32,14 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".FolderActivity" android:exported="false" />
+
+        <activity
+            android:name=".VlcPlayerActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|layoutDirection" />
+
         <activity
             android:name=".PlayerActivity"
             android:exported="true"
