@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,3 +26,10 @@ jobs:
         with:
           name: DTM-Video-Player-APK
           path: app/build/outputs/apk/debug/*.apk
+      - name: APK als Release veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk DTM-Video-Player.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest DTM-Video-Player.apk --title "DTM Video Player (neuester Build)" --notes "Debug-APK zum Installieren" --target ${{ github.sha }}
