@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -22,7 +23,13 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 /** Start-Bildschirm: Disc „einlegen" (Datei wählen), Stream-URL, Kopfhörer, Streaming-Apps. */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var disc: DiscView
+    private lateinit var disc: IntroView
+    private lateinit var stage: FrameLayout
+    private var introKind = 0
+    private val introNames = arrayOf("DVD im Laufwerk", "Kassette", "USB-Stick", "DVD-Hülle (klappt auf)", "Weltraum-Lauftext")
+    private val introTexts = arrayOf(
+        "Lege deine Disc ein", "Lege die Kassette ein", "Stecke den Stick an", "Öffne die Hülle", "Wähle unten eine Datei"
+    )
     private lateinit var status: TextView
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -33,7 +40,7 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
             }
         }
-        status.text = "Disc wird gelesen …"
+        status.text = "Wird geladen …"
         disc.insert {
             startActivity(
                 Intent(this, PlayerActivity::class.java)
@@ -72,12 +79,18 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(status)
 
-        disc = DiscView(this)
-        root.addView(disc, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        stage = FrameLayout(this)
+        root.addView(stage, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        introKind = getSharedPreferences("settings", MODE_PRIVATE).getInt("intro", 0).coerceIn(0, introNames.size - 1)
+        setIntro(introKind)
 
         val btnCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         btnCol.addView(pill("Disc einlegen (Datei wählen)", true) { openPicker() }, matchWrap())
 
+        btnCol.addView(
+            pill("Start-Bild wählen", false) { chooseIntro() },
+            matchWrap(10, this)
+        )
         btnCol.addView(
             pill("Ordner öffnen (nur Abspielbares)", false) { treePicker.launch(null) },
             matchWrap(10, this)
@@ -129,7 +142,34 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         disc.reset()
-        status.text = "Lege deine Disc ein"
+        status.text = introTexts[introKind]
+    }
+
+    private fun setIntro(kind: Int) {
+        introKind = kind
+        val v: IntroView = when (kind) {
+            1 -> CassetteView(this)
+            2 -> UsbView(this)
+            3 -> CaseView(this)
+            4 -> CrawlView(this)
+            else -> DiscView(this)
+        }
+        stage.removeAllViews()
+        disc = v
+        stage.addView(v, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        status.text = introTexts[kind]
+    }
+
+    private fun chooseIntro() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Start-Bild")
+            .setSingleChoiceItems(introNames, introKind) { d, which ->
+                getSharedPreferences("settings", MODE_PRIVATE).edit().putInt("intro", which).apply()
+                setIntro(which)
+                d.dismiss()
+            }
+            .setNegativeButton("Abbrechen", null)
+            .show()
     }
 
     private fun openPicker() {
