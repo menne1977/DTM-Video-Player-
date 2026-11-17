@@ -63,6 +63,8 @@ class VlcPlayerActivity : AppCompatActivity() {
     private lateinit var durView: TextView
     private lateinit var hud: TextView
     private lateinit var speedBtn: TextView
+    private lateinit var statusView: TextView
+    private var startedAtMs = 0L
 
     private var controlsVisible = true
     private var scrubbing = false
@@ -80,6 +82,11 @@ class VlcPlayerActivity : AppCompatActivity() {
     private val hideHud = Runnable { hud.visibility = View.GONE }
     private val ticker = object : Runnable {
         override fun run() {
+            if (startedAtMs > 0 && !mp.isPlaying && mp.length <= 0 &&
+                System.currentTimeMillis() - startedAtMs > 6000
+            ) {
+                status("Startet nicht – evtl. kopiergeschützt (DVD) oder defekt")
+            }
             updateProgress()
             handler.postDelayed(this, 500)
         }
@@ -106,11 +113,21 @@ class VlcPlayerActivity : AppCompatActivity() {
                     if (index + 1 < uris.size) playIndex(index + 1) else setControls(true)
                 }
                 MediaPlayer.Event.EncounteredError -> runOnUiThread {
+                    status("VLC-Fehler: Datei nicht lesbar (kopiergeschützt oder defekt?)")
                     Toast.makeText(this, "Diese Datei kann auch die VLC-Engine nicht abspielen", Toast.LENGTH_LONG).show()
                     setControls(true)
                 }
-                MediaPlayer.Event.Playing, MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped ->
-                    runOnUiThread { updatePlayIcon() }
+                MediaPlayer.Event.Opening -> runOnUiThread { status("Öffne Datei …") }
+                MediaPlayer.Event.Buffering -> runOnUiThread {
+                    if (ev.buffering < 100f) status("Puffere ${ev.buffering.toInt()} %")
+                }
+                MediaPlayer.Event.Vout -> runOnUiThread { status("Bildausgang: ${ev.voutCount}") }
+                MediaPlayer.Event.Playing -> runOnUiThread {
+                    status("Spielt")
+                    updatePlayIcon()
+                    handler.postDelayed({ statusView.visibility = View.GONE }, 2500)
+                }
+                MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> runOnUiThread { updatePlayIcon() }
             }
         }
 
@@ -127,10 +144,6 @@ class VlcPlayerActivity : AppCompatActivity() {
             vout.setVideoView(surface)
             vout.attachViews()
             vout.setWindowSize(surface.width, surface.height)
-        }
-        if (!started) {
-            started = true
-            playIndex(index)
         }
     }
 
@@ -180,8 +193,15 @@ class VlcPlayerActivity : AppCompatActivity() {
         return u.lastPathSegment ?: "Video"
     }
 
+    private fun status(text: String) {
+        statusView.text = text
+        statusView.visibility = View.VISIBLE
+    }
+
     private fun playIndex(i: Int) {
         index = i
+        startedAtMs = System.currentTimeMillis()
+        status("Starte …")
         val uri = uris[i]
         titleView.text = displayName(uri)
         try {
@@ -267,6 +287,21 @@ class VlcPlayerActivity : AppCompatActivity() {
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         surface = SurfaceView(this)
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
+        // Wiedergabe erst starten, wenn die Bildfläche wirklich da ist
+        surface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+                if (!started) {
+                    started = true
+                    playIndex(index)
+                }
+            }
+
+            override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
+                if (::mp.isInitialized && mp.vlcVout.areViewsAttached()) mp.vlcVout.setWindowSize(width, height)
+            }
+
+            override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {}
+        })
         surface.addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
             if (::mp.isInitialized && mp.vlcVout.areViewsAttached()) mp.vlcVout.setWindowSize(r - l, b - t)
         }
@@ -437,6 +472,15 @@ class VlcPlayerActivity : AppCompatActivity() {
         }
         root.addView(hud, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
             topMargin = dp(48)
+        })
+
+        statusView = label("Starte VLC-Engine …", 12f, Color.WHITE).apply {
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = roundRect(0x99000000.toInt(), dp(10).toFloat())
+        }
+        root.addView(statusView, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
+            topMargin = dp(84)
+            leftMargin = dp(16)
         })
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
