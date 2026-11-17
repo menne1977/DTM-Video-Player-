@@ -77,6 +77,7 @@ class PlayerActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_URIS = "uris"
         const val EXTRA_START = "start"
+        const val EXTRA_LICENSE = "license"
     }
 
     private lateinit var player: ExoPlayer
@@ -90,6 +91,7 @@ class PlayerActivity : AppCompatActivity() {
     private var eqLevels: ShortArray? = null
     private var batterySaver = false
     private var fallbackStarted = false
+    private var drmStream = false
     private var preSaverBrightness = -1f
     private val resetSeek = Runnable { player.setSeekParameters(SeekParameters.DEFAULT) }
 
@@ -294,7 +296,7 @@ class PlayerActivity : AppCompatActivity() {
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 val videoBad = video.isNotEmpty() && video.none { it.isSupported(false) }
                 val audioBad = audio.isNotEmpty() && audio.none { it.isSupported(false) }
-                if ((videoBad || audioBad) && !fallbackStarted) {
+                if (!drmStream && (videoBad || audioBad) && !fallbackStarted) {
                     fallbackStarted = true
                     openVlcFallback()
                 }
@@ -306,7 +308,7 @@ class PlayerActivity : AppCompatActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (shouldFallback(error) && !fallbackStarted) {
+                if (!drmStream && shouldFallback(error) && !fallbackStarted) {
                     fallbackStarted = true
                     openVlcFallback()
                     return
@@ -338,11 +340,22 @@ class PlayerActivity : AppCompatActivity() {
             finish()
             return
         }
+        val license = intent.getStringExtra(EXTRA_LICENSE)?.trim().orEmpty()
+        drmStream = license.isNotEmpty()
         val items = uris.map {
-            MediaItem.Builder()
+            val b = MediaItem.Builder()
                 .setUri(it)
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(displayName(it)).build())
-                .build()
+            if (drmStream) {
+                b.setDrmConfiguration(
+                    MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+                        .setLicenseUri(license)
+                        .setMultiSession(true)
+                        .build()
+                )
+                if (it.toString().contains(".mpd")) b.setMimeType(MimeTypes.APPLICATION_MPD)
+            }
+            b.build()
         }
         val start = intent.getIntExtra(EXTRA_START, 0).coerceIn(0, uris.size - 1)
         val resume = prefs.getLong(uris[start].toString(), 0L)

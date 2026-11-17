@@ -182,13 +182,29 @@ class MainActivity : AppCompatActivity() {
             setSingleLine()
             setPadding(dp(20), dp(16), dp(20), dp(16))
         }
+        val license = EditText(this).apply {
+            hint = "Widevine-Lizenz-Adresse (nur bei DRM-Stream, sonst leer)"
+            setSingleLine()
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(8), dp(4), 0)
+            addView(input)
+            addView(license)
+        }
         MaterialAlertDialogBuilder(this)
             .setTitle("Stream-Adresse")
-            .setView(input)
+            .setView(box)
             .setPositiveButton("Abspielen") { _, _ ->
                 val url = input.text.toString().trim()
                 if (url.startsWith("http")) {
-                    startActivity(Intent(this, PlayerActivity::class.java).setData(Uri.parse(url)))
+                    val lic = license.text.toString().trim()
+                    startActivity(
+                        Intent(this, PlayerActivity::class.java)
+                            .setData(Uri.parse(url))
+                            .putExtra(PlayerActivity.EXTRA_LICENSE, lic)
+                    )
                 } else {
                     Toast.makeText(this, "Bitte eine http(s)-Adresse eingeben", Toast.LENGTH_SHORT).show()
                 }
