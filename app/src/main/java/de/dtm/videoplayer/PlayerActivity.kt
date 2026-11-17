@@ -56,6 +56,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Contrast
 import androidx.media3.effect.HslAdjustment
@@ -88,6 +89,7 @@ class PlayerActivity : AppCompatActivity() {
     private var eq: Equalizer? = null
     private var eqLevels: ShortArray? = null
     private var batterySaver = false
+    private var fallbackStarted = false
     private var preSaverBrightness = -1f
     private val resetSeek = Runnable { player.setSeekParameters(SeekParameters.DEFAULT) }
 
@@ -286,13 +288,26 @@ class PlayerActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onTracksChanged(tracks: Tracks) {
+                // z. B. MKV mit DTS/AC3-Ton oder 10-Bit-HEVC: Media3 würde stumm oder schwarz weiterlaufen
+                val video = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+                val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                val videoBad = video.isNotEmpty() && video.none { it.isSupported(false) }
+                val audioBad = audio.isNotEmpty() && audio.none { it.isSupported(false) }
+                if ((videoBad || audioBad) && !fallbackStarted) {
+                    fallbackStarted = true
+                    openVlcFallback()
+                }
+            }
+
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 setupLoudness(audioSessionId)
                 setupEq(audioSessionId)
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (shouldFallback(error)) {
+                if (shouldFallback(error) && !fallbackStarted) {
+                    fallbackStarted = true
                     openVlcFallback()
                     return
                 }
