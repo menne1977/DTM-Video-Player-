@@ -30,7 +30,10 @@ class FolderActivity : AppCompatActivity() {
         val docId: String,
         val isDir: Boolean,
         val isAudio: Boolean,
-        val size: Long
+        val size: Long,
+        val isDvd: Boolean = false,
+        val extra: List<Uri> = emptyList(),
+        val sub: String = ""
     )
 
     private lateinit var treeUri: Uri
@@ -112,7 +115,14 @@ class FolderActivity : AppCompatActivity() {
             load()
             return
         }
-        val files = entries.filter { !it.isDir }
+        if (e.isDvd) {
+            startActivity(
+                Intent(this, VlcPlayerActivity::class.java)
+                    .putParcelableArrayListExtra(PlayerActivity.EXTRA_URIS, ArrayList(e.extra))
+            )
+            return
+        }
+        val files = entries.filter { !it.isDir && !it.isDvd }
         val start = files.indexOfFirst { it.docId == e.docId }.coerceAtLeast(0)
         startActivity(
             Intent(this, PlayerActivity::class.java)
@@ -140,7 +150,7 @@ class FolderActivity : AppCompatActivity() {
                 if (isFinishing || id != loadId) return@runOnUiThread
                 entries = result
                 adapter.notifyDataSetChanged()
-                val files = result.count { !it.isDir }
+                val files = result.count { !it.isDir && !it.isDvd }
                 val dirs = result.count { it.isDir }
                 infoView.text = when {
                     result.isEmpty() -> "Hier gibt es nichts Abspielbares"
@@ -181,8 +191,55 @@ class FolderActivity : AppCompatActivity() {
         }
         // Ordner ohne Medien ausblenden
         val filtered = out.filter { !it.isDir || hasMedia(it.docId, 3) }
-        return filtered.sortedWith(
+        val sorted = filtered.sortedWith(
             compareByDescending<Entry> { it.isDir }.thenBy { natural(it.name) }
+        )
+        val dvd = try {
+            findDvd(docId)
+        } catch (_: Exception) {
+            null
+        }
+        return if (dvd != null) listOf(dvd) + sorted else sorted
+    }
+
+    private val vtsPattern = Regex("(?i)VTS_(\\d+)_(\\d+)\\.VOB")
+
+    /** Erkennt eine DVD-Ordnerstruktur (VIDEO_TS) und bündelt die Dateien des Hauptfilms. */
+    private fun findDvd(docId: String): Entry? {
+        var dir = docId
+        children(docId)?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getString(0) ?: continue
+                val name = c.getString(1) ?: continue
+                val mime = c.getString(2) ?: ""
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR && name.equals("VIDEO_TS", ignoreCase = true)) {
+                    dir = id
+                    break
+                }
+            }
+        }
+        val sets = HashMap<String, ArrayList<Triple<Int, Uri, Long>>>()
+        children(dir)?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getString(0) ?: continue
+                val name = c.getString(1) ?: continue
+                val size = if (c.isNull(3)) 0L else c.getLong(3)
+                val m = vtsPattern.matchEntire(name) ?: continue
+                val part = m.groupValues[2].toInt()
+                if (part == 0) continue
+                val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                sets.getOrPut(m.groupValues[1]) { ArrayList() }.add(Triple(part, uri, size))
+            }
+        }
+        if (sets.isEmpty()) return null
+        val best = sets.entries.maxByOrNull { e -> e.value.sumOf { it.third } } ?: return null
+        val parts = best.value.sortedBy { it.first }
+        val total = parts.sumOf { it.third }
+        return Entry(
+            "DVD abspielen (Hauptfilm)", parts[0].second, dir, false, false, total,
+            isDvd = true,
+            extra = parts.map { it.second },
+            sub = "VTS_${best.key} · ${parts.size} Dateien · ${formatSize(total)}"
         )
     }
 
@@ -235,7 +292,7 @@ class FolderActivity : AppCompatActivity() {
                 background = withRipple(roundRect(Pal.SURFACE, dp(16).toFloat(), Pal.SURFACE2, dp(1)))
             }
             val icon = TextView(this@FolderActivity).apply {
-                text = if (e.isDir) "📁" else if (e.isAudio) "🎵" else "🎬"
+                text = if (e.isDvd) "📀" else if (e.isDir) "📁" else if (e.isAudio) "🎵" else "🎬"
                 textSize = 22f
                 gravity = Gravity.CENTER
             }
@@ -245,7 +302,7 @@ class FolderActivity : AppCompatActivity() {
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
             })
-            val sub = if (e.isDir) "Ordner" else formatSize(e.size)
+            val sub = if (e.isDvd) e.sub else if (e.isDir) "Ordner" else formatSize(e.size)
             if (sub.isNotEmpty()) col.addView(label(sub, 11f, Pal.MUTED))
             row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             return row
